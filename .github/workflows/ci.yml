@@ -91,7 +91,7 @@ jobs:
             mv /opt/cowsay /srv/cowsay
             su -s /bin/sh daemon -c "ln -s /srv/cowsay /opt/cowsay"
           '
-          ! conn3x apply -auto-approve
+          if conn3x apply -auto-approve; then echo "apply should have refused" >&2; exit 1; fi
           sudo podman exec circuit-python bash -ec '
             rm /opt/cowsay
             mv /srv/cowsay /opt/cowsay
@@ -108,7 +108,7 @@ jobs:
             printf "#!/bin/sh\ntouch /root/it-ran\n" > /opt/cowsay/bin/python
             chmod +x /opt/cowsay/bin/python
           '
-          ! conn3x apply -auto-approve
+          if conn3x apply -auto-approve; then echo "apply should have refused" >&2; exit 1; fi
           sudo podman exec circuit-python sh -ec '[ ! -e /root/it-ran ]'
       - name: Clean up
         if: always()
