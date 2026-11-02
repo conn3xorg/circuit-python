@@ -14,6 +14,10 @@ data "conn3x_host" "facts" {
 }
 
 locals {
+  # Succeeds when only root can change a path: everything in it, and every
+  # directory on the way to it. Add the path after this.
+  root_only = "root_only() { p=$(readlink -m -- \"$1\"); [ -z \"$(find \"$p\" \\( ! -uid 0 -o \\( -perm /022 ! -type l \\) \\) -print -quit 2>/dev/null)\" ] || { echo \"$1 can be changed by an account other than root, so root won't run what's in it\" >&2; return 1; }; while [ \"$p\" != / ]; do p=$(dirname -- \"$p\"); [ \"$(stat -c %u -- \"$p\" 2>/dev/null || echo 0)\" = 0 ] && [ $((0$(stat -c %a -- \"$p\" 2>/dev/null || echo 0) & 022)) = 0 ] || { echo \"$p can be changed by an account other than root, so root won't run what's under it\" >&2; return 1; }; done; }; root_only"
+
   venv_packages = merge([for venv, packages in var.venvs : {
     for name, version in packages : "${venv} ${name}" => { venv = venv, name = name, version = version }
   }]...)
@@ -45,20 +49,21 @@ circuit "python" {
   }
 
   # The check runs pip, not just looks for it, so a venv left behind by a
-  # distribution upgrade to a new Python minor release gets rebuilt.
+  # distribution upgrade to a new Python minor release gets rebuilt. Root only
+  # runs what's in a venv if no other account can change it or the way to it.
   step "venv" {
     for_each = var.venvs
     command {
-      command = "/usr/bin/python3 -m venv '${item.key}'"
-      unless  = "'${item.key}/bin/python' -m pip --version >/dev/null 2>&1"
+      command = "${local.root_only} '${item.key}' || exit 1; /usr/bin/python3 -m venv '${item.key}'"
+      unless  = "${local.root_only} '${item.key}' 2>/dev/null && '${item.key}/bin/python' -m pip --version >/dev/null 2>&1"
     }
   }
 
   step "venv_package" {
     for_each = local.venv_packages
     command {
-      command = "'${item.value.venv}/bin/python' -m pip install --quiet --disable-pip-version-check '${item.value.name}==${item.value.version}'"
-      unless  = "'${item.value.venv}/bin/python' -c 'import importlib.metadata as m, sys; sys.exit(m.version(sys.argv[1]) != sys.argv[2])' '${item.value.name}' '${item.value.version}' 2>/dev/null"
+      command = "${local.root_only} '${item.value.venv}' || exit 1; '${item.value.venv}/bin/python' -m pip install --quiet --disable-pip-version-check '${item.value.name}==${item.value.version}'"
+      unless  = "${local.root_only} '${item.value.venv}' 2>/dev/null && '${item.value.venv}/bin/python' -c 'import importlib.metadata as m, sys; sys.exit(m.version(sys.argv[1]) != sys.argv[2])' '${item.value.name}' '${item.value.version}' 2>/dev/null"
     }
   }
 }

@@ -83,6 +83,17 @@ jobs:
             v/bin/python -m pip install --quiet "cowsay==6.1"
             v/bin/python -c "import cowsay; print(cowsay.get_output_string(\"cow\", \"moo\"))" | grep -F moo
           '
+      - name: An environment another account can change isn't run
+        working-directory: examples/local
+        run: |
+          sudo podman exec circuit-python sh -ec '
+            chown daemon /opt/cowsay/bin
+            mv /opt/cowsay/bin/python /opt/cowsay/bin/python.real
+            printf "#!/bin/sh\ntouch /root/it-ran\n" > /opt/cowsay/bin/python
+            chmod +x /opt/cowsay/bin/python
+          '
+          ! conn3x apply -auto-approve
+          sudo podman exec circuit-python sh -ec '[ ! -e /root/it-ran ]'
       - name: Clean up
         if: always()
         working-directory: examples/local
