@@ -14,9 +14,35 @@ data "conn3x_host" "facts" {
 }
 
 locals {
-  # Succeeds when only root can change a path: everything in it, and every
-  # directory on the way to it. Add the path after this.
-  root_only = "root_only() { p=$(readlink -m -- \"$1\"); [ -z \"$(find \"$p\" \\( ! -uid 0 -o \\( -perm /022 ! -type l \\) \\) -print -quit 2>/dev/null)\" ] || { echo \"$1 can be changed by an account other than root, so root won't run what's in it\" >&2; return 1; }; while [ \"$p\" != / ]; do p=$(dirname -- \"$p\"); [ \"$(stat -c %u -- \"$p\" 2>/dev/null || echo 0)\" = 0 ] && [ $((0$(stat -c %a -- \"$p\" 2>/dev/null || echo 0) & 022)) = 0 ] || { echo \"$p can be changed by an account other than root, so root won't run what's under it\" >&2; return 1; }; done; }; root_only"
+  # Succeeds when only root can change a path: every part of it as written,
+  # each link on the way one step at a time, and everything in it. Add the
+  # path after this.
+  root_only = trimspace(<<-EOT
+    only_root_changes() {
+      case $1 in /*) ;; *) return 1 ;; esac
+      [ "$${2:-0}" -lt 40 ] || return 1
+      # The /. keeps a trailing slash from hiding a link from -L.
+      p=$1/.
+      while :; do
+        if [ -L "$p" ]; then
+          [ "$(stat -c %u -- "$p")" = 0 ] || return 1
+          t=$(readlink -- "$p")
+          case $t in /*) ;; *) t=$(dirname -- "$p")/$t ;; esac
+          (only_root_changes "$t" $(($${2:-0} + 1))) || return 1
+        elif [ -e "$p" ]; then
+          [ "$(stat -c %u -- "$p")" = 0 ] && [ $((0$(stat -c %a -- "$p") & 022)) = 0 ] || return 1
+        fi
+        [ "$p" != / ] || return 0
+        p=$(dirname -- "$p")
+      done
+    }
+    root_only() {
+      (only_root_changes "$1") || { echo "$1 can be changed by an account other than root, so root won't run what's under it" >&2; return 1; }
+      [ -z "$(find "$(readlink -m -- "$1")" \( ! -uid 0 -o \( -perm /022 ! -type l \) \) -print -quit 2>/dev/null)" ] || { echo "$1 can be changed by an account other than root, so root won't run what's in it" >&2; return 1; }
+    }
+    root_only
+  EOT
+  )
 
   venv_packages = merge([for venv, packages in var.venvs : {
     for name, version in packages : "${venv} ${name}" => { venv = venv, name = name, version = version }
