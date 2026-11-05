@@ -19,7 +19,7 @@ We picked this route on purpose. Distribution Python gets its security fixes wit
 
 ```hcl
 module "python" {
-  source = "github.com/conn3xorg/circuit-python?ref=v0.1.2"
+  source = "github.com/conn3xorg/circuit-python?ref=v0.1.3"
 
   hosts                = { app1 = "203.0.113.10", app2 = "203.0.113.11" }
   ssh_private_key_file = "~/.ssh/id_ed25519"
