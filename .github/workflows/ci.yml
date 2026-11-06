@@ -110,6 +110,25 @@ jobs:
           '
           if conn3x apply -auto-approve; then echo "apply should have refused" >&2; exit 1; fi
           sudo podman exec circuit-python sh -ec '[ ! -e /root/it-ran ]'
+      # A fresh host gets cowsay 6.0, then the example's own pin is applied
+      # over it, the way someone moves a venv to a newer release. Python
+      # itself comes from the distribution, which has no older release to
+      # start from.
+      - name: Upgrade cowsay from 6.0 on a fresh host, then plan again with no changes
+        working-directory: examples/local
+        env:
+          CONTAINERFILE: ${{ github.workspace }}/conn3x/test/images/${{ matrix.distro }}/Containerfile
+          PODMAN: sudo podman
+        run: |
+          ./down.sh
+          ./up.sh
+          conn3x init
+          conn3x apply -auto-approve -var cowsay_version=6.0
+          sudo podman exec circuit-python /opt/cowsay/bin/python -m pip list --format=freeze | grep -x 'cowsay==6.0'
+          conn3x apply -auto-approve
+          conn3x plan -detailed-exitcode
+          sudo podman exec circuit-python /opt/cowsay/bin/python -m pip list --format=freeze | grep -x 'cowsay==6.1'
+          sudo podman exec circuit-python /opt/cowsay/bin/cowsay -t upgraded | grep -F upgraded
       - name: Clean up
         if: always()
         working-directory: examples/local
